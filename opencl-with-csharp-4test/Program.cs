@@ -1,4 +1,9 @@
-﻿using System;
+﻿using Cudafy;
+using Cudafy.Host;
+using Cudafy.Translator;
+using Cudafy.Types;
+
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -7,136 +12,52 @@ using System.Threading.Tasks;
 
 namespace opencl_with_csharp_4test
 {
-
-    /*
-    便利なURL
-    https://www.khronos.org/registry/cl/api/1.2/cl.h
-    */
-
     class Program
     {
-        public const string OpenCL = "OpenCL.dll";
-
-        //対象のDLLを読み込んで、DLL中のメソッドを実行可能にします。
-        //ここではDLL中の'clGetPlatformIDs'メソッドを利用します。
-        [DllImport(OpenCL)]
-        public static extern int clGetPlatformIDs
-            (uint num_entries,
-            IntPtr[] platforms,
-            out uint num_platforms);
-
-
-        [DllImport(OpenCL)]
-        public static extern int clGetPlatformInfo
-            (IntPtr platform,
-            int param_name,
-            uint param_value_size,
-            StringBuilder param_value,
-            out IntPtr param_value_size_ret);
-
-        [DllImport(OpenCL)]
-        public static extern int clGetDeviceInfo
-            (IntPtr device,
-            int param_name,
-            uint param_value_size,
-            StringBuilder param_value,
-            out IntPtr param_value_size_ret);
-
-        [DllImport(OpenCL)]
-        public static extern int clGetDeviceIDs
-            (IntPtr platform,
-            uint device_type,
-            uint num_entries,
-            IntPtr[] devices,
-            out uint num_devices);
-
-
-        public const int CL_SUCCESS = 0;
-        public const int CL_PLATFORM_PROFILE = 0x0900;
-        public const int CL_PLATFORM_VERSION = 0x0901;
-        public const int CL_DEVICE_NAME = 0x102B;
-        public const int CL_DEVICE_VENDOR = 0x102C;
-        public const int CL_DEVICE_TYPE_DEFAULT = (1 << 0);
-
         static void Main(string[] args)
         {
+            simple_kernel_params.Execute();
+        }
+    }
 
-            uint platformCount;
+    public class simple_kernel_params
+    {
+        public static void Execute()
+        {
+            CudafyModule km = CudafyTranslator.Cudafy(eArchitecture.OpenCL11);
 
-            int errcode = clGetPlatformIDs(0u, null, out platformCount);
+            GPGPU gpu = CudafyHost.GetDevice(eGPUType.OpenCL, CudafyModes.DeviceId);
+            gpu.LoadModule(km);
 
-            if (errcode != CL_SUCCESS)
-                Console.WriteLine("Error at clGetPlatformIDs : " + errcode);
-            else
-                Console.WriteLine("Number of OpenCL Platforms : " + platformCount.ToString());
+            // we cannot return any value from a device function...so our result is passed via parameter c
+            // out keyword not supported.. so use a vector
+            // allocating memory on the device even though it will only contain one Int32 value
+            int c;
+            int[] dev_c = gpu.Allocate<int>(); // cudaMalloc one Int32
+            gpu.Launch().add(2, 7, dev_c); // or gpu.Launch(1, 1, "add", 2, 7, dev_c);
+            //gpu.Launch(1000, 1000, "add", 2, 7, dev_c);
+            // copying result back
+            gpu.CopyFromDevice(dev_c, out c);
 
+            Console.WriteLine("2 + 7 = {0}", c);
+            //gpu.Launch().sub(2, 7, dev_c);
+            //gpu.CopyFromDevice(dev_c, out c);
 
-            IntPtr[] platforms = new IntPtr[platformCount];
-            clGetPlatformIDs(platformCount, platforms, out platformCount);
+            //Console.WriteLine("2 - 7 = {0}", c);
 
-            foreach (IntPtr platform in platforms)
-            {
-                
-                IntPtr valueSize;
-                StringBuilder value = new StringBuilder();
+            gpu.Free(dev_c);
+        }
 
-                //[1]プラットフォームの情報を取得します。
-                //データサイズを取得します
-                errcode = clGetPlatformInfo(platform, CL_PLATFORM_PROFILE, 0, null, out valueSize);
-                if (errcode != CL_SUCCESS)
-                    throw new Exception("Error at clGetPlatformInfo : " + errcode);
-                //データを取得します
-                errcode = clGetPlatformInfo(platform, CL_PLATFORM_PROFILE, (uint)valueSize.ToInt32(), value, out valueSize);
-                Console.WriteLine("Platform Profile   : " + value);
+        [Cudafy]
+        public static void add(int a, int b, int[] c)
+        {
+            c[0] = a + b;
+        }
 
-                //[2]OpenCLプラットフォームのバージョンを取得します。
-                //データサイズを取得します
-                errcode = clGetPlatformInfo(platform, CL_PLATFORM_VERSION, 0, null, out valueSize);
-                if (errcode != CL_SUCCESS)
-                    throw new Exception("Error at clGetPlatformInfo : " + errcode);
-                //データを取得します
-                errcode = clGetPlatformInfo(platform, CL_PLATFORM_VERSION, (uint)valueSize.ToInt32(), value, out valueSize);
-                Console.WriteLine("Platform Version   : " + value);
-
-
-                //[3]デバイスの情報を取得します。
-                //デバイスの数を取得します。
-                uint deviceCount;
-                errcode = clGetDeviceIDs(platform, CL_DEVICE_TYPE_DEFAULT, 0, null, out deviceCount);
-                if (errcode != CL_SUCCESS)
-                    throw new Exception("Error at clGetDeviceIDs  : " + errcode);
-                //デバイスのIDを取得します。
-                IntPtr[] devices = new IntPtr[deviceCount];
-                errcode = clGetDeviceIDs
-                              (platform, CL_DEVICE_TYPE_DEFAULT, deviceCount, devices, out deviceCount);
-
-                foreach (IntPtr device in devices)
-                {
-                    //デバイスの提供元を取得します。
-                    errcode = clGetDeviceInfo(device, CL_DEVICE_VENDOR, 0, null, out valueSize);
-                    if (errcode != CL_SUCCESS)
-                        throw new Exception("Error at clGetDeviceInfo  : " + errcode);
-                    clGetDeviceInfo(device, CL_DEVICE_VENDOR, (uint)valueSize.ToInt32(), value, out valueSize);
-                    Console.WriteLine(" - Device Vendor   : " + value);
-
-                    //デバイスの情報(名前)を取得します。
-                    errcode = clGetDeviceInfo(device, CL_DEVICE_NAME, 0, null, out valueSize);
-                    if (errcode != CL_SUCCESS)
-                        throw new Exception("Error at clGetDeviceInfo  : " + errcode);
-                    clGetDeviceInfo(device, CL_DEVICE_NAME, (uint)valueSize.ToInt32(), value, out valueSize);
-                    Console.WriteLine(" - Device Name     : " + value);
-                }
-
-
-            }
-
-
-
-
-
-
-            Console.ReadLine();
-
+        [Cudafy]
+        public static void sub(int a, int b, int[] c)
+        {
+            c[0] = a - b;
         }
     }
 }
