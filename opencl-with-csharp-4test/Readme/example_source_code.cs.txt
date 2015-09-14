@@ -1,7 +1,7 @@
 /* 
  * This software is based upon the book CUDA By Example by Sanders and Kandrot
  * and source code provided by NVIDIA Corporation.
- * It is a good idea to read the book while studying the examples!
+ * It is a good idintea to read the book while studying the examples!
 */
 using System;
 using Cudafy;

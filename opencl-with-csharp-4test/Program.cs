@@ -17,7 +17,7 @@ namespace opencl_with_csharp_4test
         static void Main(string[] args)
         {
             //OpenCLTest.Execute();
-            KernelCalculator.Execute();
+            Kernel3DCalculator.Execute();
             Console.ReadKey();
         }
     }
