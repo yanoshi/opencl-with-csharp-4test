@@ -7,11 +7,23 @@ using System.Threading.Tasks;
 using Cudafy;
 using Cudafy.Host;
 using Cudafy.Translator;
+using System.Diagnostics;
 
 namespace opencl_with_csharp_4test
 {
-    class KernelCalculator
+    public class KernelCalculator
     {
+        public const int X_SIZE = 128;
+        public const int Y_SIZE = 128;
+        public const int KERNEL_SIZE = 51;
+
+        [Cudafy]
+        public static int[,] MemoryMain2D = new int[X_SIZE, Y_SIZE];
+
+        [Cudafy]
+        public static float[,] MemoryKernel = new float[KERNEL_SIZE, KERNEL_SIZE];
+
+
         public static void Execute()
         {
             CudafyModes.Language = eLanguage.OpenCL;
@@ -22,66 +34,70 @@ namespace opencl_with_csharp_4test
             GPGPU gpu = CudafyHost.GetDevice(eGPUType.OpenCL, CudafyModes.DeviceId);
             gpu.LoadModule(km);
 
-            int[,] a = new int[1024, 1024];
-            float[,] kPict = new float[127, 127];
-            int[,] z = new int[1024, 1024];
+            int[,] a = new int[X_SIZE,Y_SIZE];
+            float[,] kPict = new float[KERNEL_SIZE,KERNEL_SIZE];
+            int[] output = new int[X_SIZE * Y_SIZE];
 
-            int[,] dev_a = gpu.Allocate<int>(1024, 1024);
-            float[,] dev_kpict = gpu.Allocate<float>(127, 127);
-            int[,] dev_z = gpu.Allocate<int>(1024, 1024);
+            int[] dev_output = gpu.Allocate<int>(X_SIZE * Y_SIZE);
 
             Random r = new Random();
 
             for (int y = 0; y < a.GetLength(1); y++)
                 for (int x = 0; x < a.GetLength(0); x++)
-                    z[x, y] = r.Next();
+                    a[x, y] = r.Next();
 
-            for (int y = 0; y < a.GetLength(1); y++)
-                for (int x = 0; x < a.GetLength(0); x++)
-                    kPict[x, y] = 1.0f / (127.0f * 127.0f);
+            for (int y = 0; y < kPict.GetLength(1); y++)
+                for (int x = 0; x < kPict.GetLength(0); x++)
+                    kPict[x , y] = 1.0f / (KERNEL_SIZE * KERNEL_SIZE);
 
-            gpu.CopyToDevice(a, dev_a);
-            gpu.CopyToDevice(kPict, dev_kpict);
+            gpu.CopyToConstantMemory(a, MemoryMain2D);
+            gpu.CopyToConstantMemory(kPict, MemoryKernel);
 
-            gpu.Launch(new dim3(1024,1024), 1).MuxArray(dev_a, dev_kpict, dev_z);
-            //gpu.Launch(1000, 1000, "add", 2, 7, dev_c);
-            // copying result back
-            gpu.CopyFromDevice(dev_z, z);
+            gpu.Launch(X_SIZE, 1).ApplyKernel(dev_output);
 
 
-            for (int y = 0; y < z.GetLength(1); y++)
-                for (int x = 0; x < z.GetLength(0); x++)
-                    Console.WriteLine("({0},{1}):\t{2}", x, y, z[x, y]);
-            //gpu.Launch().sub(2, 7, dev_c);
-            //gpu.CopyFromDevice(dev_c, out c);
+            gpu.CopyFromDevice(dev_output, output);
 
-            //Console.WriteLine("2 - 7 = {0}", c);
-            gpu.Free(dev_a);
-            gpu.Free(dev_z);
-            gpu.Free(dev_kpict);
+
+            for (int i= 0; i < output.Length; i++)
+                Console.WriteLine("({0},{1}):\t{2}", i % Y_SIZE, i / Y_SIZE, output[i]);
+
+
+            gpu.Free(dev_output);
+
         }
 
 
         [Cudafy]
-        public static void MuxArray(GThread thread, int[,] a, float[,] kernel, int[,] z)
+        public static void ApplyKernel(GThread thread, int[] outputData)
         {
-            int targetX = thread.gridDim.x;
-            int targetY = thread.gridDim.y;
+            //int[,] cache = thread.AllocateShared<int>("cache", X_SIZE, Y_SIZE);
+            int targetX = thread.blockIdx.x;
+            int targetY = 0;
 
             float value = 0;
 
-            for (int kernelX = 127 / -2; kernelX <= 127 / 2; kernelX++)
-                for (int kernelY = 127 / -2; kernelY <= 127 / 2; kernelY++)
-                {
-                    int realX = targetX + kernelX;
-                    int realY = targetY + kernelY;
+            while(targetY < Y_SIZE)
+            {
+                for (int kernelX = KERNEL_SIZE / -2; kernelX <= KERNEL_SIZE / 2; kernelX++)
+                    for (int kernelY = KERNEL_SIZE / -2; kernelY <= KERNEL_SIZE / 2; kernelY++)
+                    {
+                        int realX = targetX + kernelX;
+                        int realY = targetY + kernelY;
 
-                    if (realX >= 0 && realX < 1024 &&
-                        realY >= 0 && realY < 1024)
-                        value += kernel[kernelX + 127 / 2, kernelY + 127 / 2] * a[realX, realY];
-                }
+                        if (realX >= 0 && realX < X_SIZE &&
+                            realY >= 0 && realY < Y_SIZE)
+                            value += MemoryKernel[kernelX + KERNEL_SIZE / 2, kernelY + KERNEL_SIZE / 2] * MemoryMain2D[realX, realY];
 
-            z[targetX, targetY] = (int)value;
+                        //Debug.WriteLine(String.Format("hoge: {0}",kernelX));
+                    }
+
+                //cache[targetX, targetY] = (int)value;
+                //outputData[targetX + targetY * X_SIZE] = cache[targetX, targetY];
+                outputData[targetX + targetY * X_SIZE] = (int)value;
+                targetY++;
+                value = 0;
+            }
         }
     }
 }
