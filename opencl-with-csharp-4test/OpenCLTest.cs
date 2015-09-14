@@ -10,16 +10,14 @@ using System.Threading.Tasks;
 namespace opencl_with_csharp_4test
 {
 
-    public class OpenCLExecuter
+    public class OpenCLTest
     {
         private const int N = 1024 * 1024;
 
         public static void Execute()
         {
             CudafyModes.Language = eLanguage.OpenCL;
-            
             CudafyModule km = CudafyTranslator.Cudafy(eArchitecture.OpenCL11);
-            
 
             GPGPU gpu = CudafyHost.GetDevice(eGPUType.OpenCL, CudafyModes.DeviceId);
             gpu.LoadModule(km);
@@ -58,17 +56,6 @@ namespace opencl_with_csharp_4test
             gpu.Free(dev_c);
         }
 
-        [Cudafy]
-        public static void add(int a, int b, int[] c)
-        {
-            c[0] = a + b;
-        }
-
-        [Cudafy]
-        public static void sub(int a, int b, int[] c)
-        {
-            c[0] = a - b;
-        }
 
 
         [Cudafy]
@@ -80,5 +67,9 @@ namespace opencl_with_csharp_4test
                 c[tid] = a[tid] * b[tid];
 
         }
+
+
+
+
     }
 }
